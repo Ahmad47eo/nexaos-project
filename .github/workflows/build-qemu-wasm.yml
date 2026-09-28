@@ -17,6 +17,8 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
     steps:
       - name: Checkout NexaOS ISO Lab
         uses: actions/checkout@v4
@@ -62,13 +64,20 @@ jobs:
           docker cp build-qemu-wasm:/build/qemu-system-x86_64.data qemu/qemu-system-x86_64.data
           docker cp build-qemu-wasm:/build/load.js qemu/load.js
 
+          echo "=== QEMU runtime package ==="
+          ls -lh qemu/
+          test -s qemu/load.js
+          test -s qemu/qemu-system-x86_64.js
+          test -s qemu/qemu-system-x86_64.wasm
+          test -s qemu/qemu-system-x86_64.data
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: .
 
