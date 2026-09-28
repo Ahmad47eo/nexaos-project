@@ -27,6 +27,10 @@ jobs:
           repository: ktock/qemu-wasm
           path: qemu-wasm
 
+      - name: Patch stale zlib download URL
+        run: |
+          sed -i 's#https://zlib.net/zlib-$ZLIB_VERSION.tar.xz#https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.xz#' qemu-wasm/Dockerfile
+
       - name: Build QEMU-Wasm container
         run: docker build -t buildqemu qemu-wasm
 
