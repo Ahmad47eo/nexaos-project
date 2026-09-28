@@ -35,7 +35,7 @@ jobs:
         run: docker build -t buildqemu qemu-wasm
 
       - name: Start build container
-        run: docker run --rm -d --name build-qemu-wasm -v "$PWD/qemu-wasm:/qemu:ro" buildqemu
+        run: docker run --rm -d --name build-qemu-wasm -v "$PWD/qemu-wasm:/qemu" buildqemu
 
       - name: Configure x86_64 QEMU-Wasm
         run: |
@@ -49,17 +49,18 @@ jobs:
         run: |
           rm -rf public/qemu
           mkdir -p public/qemu/pack
-          docker cp build-qemu-wasm:/build/qemu-system-x86_64 public/qemu/qemu-system-x86_64.js
-          for f in qemu-system-x86_64.wasm qemu-system-x86_64.worker.js; do
-            docker cp build-qemu-wasm:/build/$f public/qemu/$f
-          done
           cp qemu-wasm/pc-bios/bios-256k.bin public/qemu/pack/
           cp qemu-wasm/pc-bios/vgabios-stdvga.bin public/qemu/pack/
           cp qemu-wasm/pc-bios/kvmvapic.bin public/qemu/pack/
           cp qemu-wasm/pc-bios/linuxboot_dma.bin public/qemu/pack/
-          docker exec build-qemu-wasm /emsdk/upstream/emscripten/tools/file_packager.py /tmp/qemu-system-x86_64.data --preload /pack > /tmp/load.js
-          docker cp build-qemu-wasm:/tmp/qemu-system-x86_64.data public/qemu/qemu-system-x86_64.data
-          docker cp build-qemu-wasm:/tmp/load.js public/qemu/load.js
+          docker cp public/qemu/pack build-qemu-wasm:/
+          docker cp build-qemu-wasm:/build/qemu-system-x86_64 public/qemu/qemu-system-x86_64.js
+          for f in qemu-system-x86_64.wasm qemu-system-x86_64.worker.js; do
+            docker cp build-qemu-wasm:/build/$f public/qemu/$f
+          done
+          docker exec build-qemu-wasm /bin/sh -c "/emsdk/upstream/emscripten/tools/file_packager.py qemu-system-x86_64.data --preload /pack > load.js"
+          docker cp build-qemu-wasm:/build/qemu-system-x86_64.data public/qemu/qemu-system-x86_64.data
+          docker cp build-qemu-wasm:/build/load.js public/qemu/load.js
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
