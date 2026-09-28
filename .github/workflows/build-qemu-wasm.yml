@@ -1,0 +1,72 @@
+name: Build QEMU-Wasm runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: qemu-wasm-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout NexaOS ISO Lab
+        uses: actions/checkout@v4
+
+      - name: Checkout QEMU-Wasm
+        uses: actions/checkout@v4
+        with:
+          repository: ktock/qemu-wasm
+          path: qemu-wasm
+
+      - name: Build QEMU-Wasm container
+        run: docker build -t buildqemu qemu-wasm
+
+      - name: Start build container
+        run: docker run --rm -d --name build-qemu-wasm -v "$PWD/qemu-wasm:/qemu:ro" buildqemu
+
+      - name: Configure x86_64 QEMU-Wasm
+        run: |
+          EXTRA_CFLAGS="-O3 -Wno-error=unused-command-line-argument -matomics -mbulk-memory -DNDEBUG -DG_DISABLE_ASSERT -D_GNU_SOURCE -sASYNCIFY=1 -pthread -sPROXY_TO_PTHREAD=1 -sFORCE_FILESYSTEM -sALLOW_TABLE_GROWTH -sTOTAL_MEMORY=2300MB -sWASM_BIGINT -sMALLOC=mimalloc --js-library=/build/node_modules/xterm-pty/emscripten-pty.js -sEXPORT_ES6=1 -sASYNCIFY_IMPORTS=ffi_call_js"
+          docker exec build-qemu-wasm emconfigure /qemu/configure             --static --target-list=x86_64-softmmu --cpu=wasm32 --cross-prefix=             --without-default-features --enable-system --with-coroutine=fiber --enable-virtfs             --extra-cflags="$EXTRA_CFLAGS"             --extra-cxxflags="$EXTRA_CFLAGS"             --extra-ldflags="-sEXPORTED_RUNTIME_METHODS=getTempRet0,setTempRet0,addFunction,removeFunction,TTY,FS"
+
+      - name: Compile QEMU-Wasm
+        run: docker exec build-qemu-wasm emmake make -j2 qemu-system-x86_64
+
+      - name: Package runtime assets
+        run: |
+          rm -rf public/qemu
+          mkdir -p public/qemu/pack
+          docker cp build-qemu-wasm:/build/qemu-system-x86_64 public/qemu/qemu-system-x86_64.js
+          for f in qemu-system-x86_64.wasm qemu-system-x86_64.worker.js; do
+            docker cp build-qemu-wasm:/build/$f public/qemu/$f
+          done
+          cp qemu-wasm/pc-bios/bios-256k.bin public/qemu/pack/
+          cp qemu-wasm/pc-bios/vgabios-stdvga.bin public/qemu/pack/
+          cp qemu-wasm/pc-bios/kvmvapic.bin public/qemu/pack/
+          cp qemu-wasm/pc-bios/linuxboot_dma.bin public/qemu/pack/
+          docker exec build-qemu-wasm /emsdk/upstream/emscripten/tools/file_packager.py /tmp/qemu-system-x86_64.data --preload /pack > /tmp/load.js
+          docker cp build-qemu-wasm:/tmp/qemu-system-x86_64.data public/qemu/qemu-system-x86_64.data
+          docker cp build-qemu-wasm:/tmp/load.js public/qemu/load.js
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
