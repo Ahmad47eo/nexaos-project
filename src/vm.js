@@ -28,11 +28,13 @@ export class VMController {
     this.diag('Starting runtime loader');
     this.diag('Base URL: ' + base);
 
+    const canvas = this.ensureCanvas();
     window.Module = {
       noInitialRun: true,
       noExitRuntime: true,
       locateFile: file => new URL(file, base).href,
       mainScriptUrlOrBlob: new URL('qemu-system-x86_64.js', base).href,
+      canvas,
       print: msg => this.onLog?.('QEMU: ' + msg),
       printErr: msg => this.onLog?.('QEMU: ' + msg),
       onAbort: msg => this.onError?.('QEMU aborted: ' + msg),
@@ -99,7 +101,10 @@ export class VMController {
       '-drive', 'file=' + isoPath + ',media=cdrom,readonly=on,format=raw',
       '-boot', 'order=d',
       '-serial', 'stdio',
-      '-display', 'none'
+      '-display', 'sdl',
+      '-vga', 'std',
+      '-device', 'usb-kbd',
+      '-device', 'usb-tablet'
     ];
 
     // qemu-wasm's browser sample passes arguments through Module.arguments.
@@ -112,6 +117,26 @@ export class VMController {
     } else {
       throw new Error('QEMU build does not expose callMain');
     }
+  }
+
+  ensureCanvas() {
+    let canvas = this.screen.querySelector('#vmCanvas');
+    if (!canvas) {
+      this.screen.innerHTML = '';
+      canvas = document.createElement('canvas');
+      canvas.id = 'vmCanvas';
+      canvas.tabIndex = 0;
+      canvas.setAttribute('aria-label', 'NexaOS virtual machine display');
+      this.screen.appendChild(canvas);
+    }
+    canvas.width = 1024;
+    canvas.height = 768;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.objectFit = 'contain';
+    canvas.style.touchAction = 'none';
+    canvas.addEventListener('pointerdown', () => canvas.focus(), {passive:true});
+    return canvas;
   }
 
   async start(isoFile, settings) {
