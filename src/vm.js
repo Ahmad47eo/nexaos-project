@@ -7,7 +7,7 @@ export class VMController {
   }
 
   diag(msg) {
-    this.onLog?.('QEMU loader: ' + msg);
+    this.onLog?.('QEMU: ' + msg);
   }
 
   async waitForScript(url) {
@@ -32,6 +32,7 @@ export class VMController {
       noInitialRun: true,
       noExitRuntime: true,
       locateFile: file => new URL(file, base).href,
+      mainScriptUrlOrBlob: new URL('qemu-system-x86_64.js', base).href,
       print: msg => this.onLog?.('QEMU: ' + msg),
       printErr: msg => this.onLog?.('QEMU: ' + msg),
       onAbort: msg => this.onError?.('QEMU aborted: ' + msg),
@@ -39,12 +40,12 @@ export class VMController {
     };
 
     const loadUrl = new URL('load.js', base).href;
-    this.diag('Loading filesystem package: load.js');
+    this.diag('Loading packaged filesystem: load.js');
     await Promise.race([
       this.waitForScript(loadUrl),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out loading QEMU load.js after 30 seconds')), 30000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out loading QEMU filesystem after 30 seconds')), 30000))
     ]);
-    this.diag('load.js loaded');
+    this.diag('Filesystem package loaded');
 
     const qemuUrl = new URL('qemu-system-x86_64.js', base).href;
     this.diag('Importing QEMU module');
@@ -64,8 +65,8 @@ export class VMController {
 
     this.runtime = {
       start: args => this.startQemu(args),
-      pause: () => this.onStatus('paused', 'Pause requested'),
-      resume: () => this.onStatus('running', 'Resume requested'),
+      pause: () => this.onStatus('paused', 'Pause is not exposed by this QEMU build'),
+      resume: () => this.onStatus('running', 'Resume is not exposed by this QEMU build'),
       reset: () => this.reset(),
       stop: () => this.stop()
     };
@@ -73,10 +74,10 @@ export class VMController {
     return this.runtime;
   }
 
-  async startQemu({isoFile, memoryMiB, smp}) {
+  async startQemu({isoFile, memoryMiB, smp, firmware}) {
     if (!this.module) throw new Error('QEMU module is not initialized');
     if (memoryMiB > 2048) {
-      throw new Error('This QEMU-Wasm build is limited to about 2 GB guest RAM; 8 GB needs a wasm64 build.');
+      throw new Error('This wasm32 build supports up to 2 GB guest RAM.');
     }
 
     this.diag('Reading ISO into browser memory');
@@ -86,19 +87,31 @@ export class VMController {
     this.module.FS_writeFile(isoPath, bytes);
     this.diag('ISO loaded: ' + bytes.byteLength + ' bytes');
 
+    if (firmware === 'uefi') {
+      throw new Error('UEFI is not packaged yet; use BIOS for this build.');
+    }
+
     const args = [
+      '-accel', 'tcg,thread=multi,tb-size=500',
       '-m', String(memoryMiB) + 'M',
       '-smp', String(smp),
       '-L', '/pack/',
-      '-cdrom', isoPath,
-      '-boot', 'd',
+      '-drive', 'file=' + isoPath + ',media=cdrom,readonly=on,format=raw',
+      '-boot', 'order=d',
       '-serial', 'stdio',
       '-display', 'none'
     ];
 
+    // qemu-wasm's browser sample passes arguments through Module.arguments.
+    // This also avoids calling callMain() directly, which bypasses the
+    // initialization path expected by the generated Emscripten module.
+    this.module.arguments = args;
     this.diag('Starting QEMU with ' + memoryMiB + ' MB RAM and ' + smp + ' CPU thread(s)');
-    if (typeof this.module.callMain === 'function') this.module.callMain(args);
-    else throw new Error('QEMU build does not expose callMain');
+    if (typeof this.module.callMain === 'function') {
+      this.module.callMain(args);
+    } else {
+      throw new Error('QEMU build does not expose callMain');
+    }
   }
 
   async start(isoFile, settings) {
@@ -107,17 +120,32 @@ export class VMController {
       await this.loadRuntime();
       this.diag('Runtime ready; starting VM');
       await this.runtime.start({isoFile, ...settings});
-      this.onStatus('running', 'QEMU-Wasm running');
+      this.onStatus('running', 'QEMU-Wasm started');
     } catch (e) {
       this.onError(e?.message || String(e));
       this.onStatus('error', e?.message || 'QEMU-Wasm failed');
     }
   }
 
-  pause() { this.onStatus('paused', 'Pause is not yet exposed by this QEMU build'); }
-  resume() { this.onStatus('running', 'Resume is not yet exposed by this QEMU build'); }
-  reset() { this.onStatus('stopped', 'VM reset requested; reload QEMU for a clean boot'); }
-  stop() { this.onStatus('stopped', 'VM stopped'); this.renderFallback('NexaOS ISO Lab', 'Select an ISO and press Start VM.'); }
+  pause() {
+    this.onStatus('paused', 'Pause is not available in this build');
+  }
+
+  resume() {
+    this.onStatus('running', 'Resume is not available in this build');
+  }
+
+  reset() {
+    // A fresh Emscripten instance is required for a true VM reset.
+    // Reloading also clears the in-memory ISO and virtual filesystem.
+    this.onStatus('stopped', 'Reloading for a clean VM reset...');
+    location.reload();
+  }
+
+  stop() {
+    this.onStatus('stopped', 'VM stopped; reload for a fresh runtime');
+    this.renderFallback('NexaOS ISO Lab', 'Select an ISO and press Start VM.');
+  }
 
   renderFallback(t, p) {
     this.screen.innerHTML = '<div class="screen-message"><div class="logo">N</div><h1>' + t + '</h1><p>' + p + '</p></div>';
