@@ -29,6 +29,7 @@ export class VMController {
     this.diag('Base URL: ' + base);
 
     const canvas = this.ensureCanvas();
+    this.diag('Creating Emscripten Module configuration');
     window.Module = {
       noInitialRun: true,
       noExitRuntime: true,
