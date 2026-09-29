@@ -24,8 +24,8 @@ export class VMController {
     if (this.runtime) return this.runtime;
 
     const base = this.base.href;
-    this.onRuntime(false, 'Loading QEMU-Wasm runtime...');
-    this.diag('Starting runtime loader');
+    this.onRuntime(false, 'Loading QEMU-Wasm runtime... 0%');
+    this.diag('Stage 1/5 — preparing QEMU runtime (0%)');
     this.diag('Base URL: ' + base);
 
     const canvas = this.ensureCanvas();
@@ -42,19 +42,27 @@ export class VMController {
     };
 
     const loadUrl = new URL('load.js', base).href;
+    this.onRuntime(false, 'Loading QEMU filesystem... 20%');
+    this.diag('Stage 2/5 — loading packaged filesystem (20%)');
     this.diag('Loading packaged filesystem: load.js');
     await Promise.race([
       this.waitForScript(loadUrl),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out loading QEMU filesystem after 30 seconds')), 30000))
     ]);
+    this.onRuntime(false, 'QEMU filesystem loaded... 40%');
+    this.diag('Stage 3/5 — filesystem package loaded (40%)');
     this.diag('Filesystem package loaded');
 
     const qemuUrl = new URL('qemu-system-x86_64.js', base).href;
+    this.onRuntime(false, 'Loading QEMU engine... 55%');
+    this.diag('Stage 4/5 — importing QEMU engine (55%)');
     this.diag('Importing QEMU module');
     const mod = await Promise.race([
       import(qemuUrl),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out importing QEMU JavaScript after 30 seconds')), 30000))
     ]);
+    this.onRuntime(false, 'Initializing QEMU... 70%');
+    this.diag('Stage 4/5 — QEMU JavaScript imported (70%)');
     this.diag('QEMU JavaScript imported');
 
     const factory = mod.default || mod;
@@ -63,6 +71,8 @@ export class VMController {
       factory(window.Module),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out initializing QEMU-Wasm after 60 seconds')), 60000))
     ]);
+    this.onRuntime(false, 'QEMU engine initialized... 85%');
+    this.diag('Stage 5/5 — Emscripten module initialized (85%)');
     this.diag('Emscripten module initialized');
 
     this.runtime = {
@@ -72,7 +82,7 @@ export class VMController {
       reset: () => this.reset(),
       stop: () => this.stop()
     };
-    this.onRuntime(true, 'QEMU-Wasm runtime loaded');
+    this.onRuntime(true, 'QEMU-Wasm ready — 100%');
     return this.runtime;
   }
 
@@ -82,12 +92,14 @@ export class VMController {
       throw new Error('This wasm32 build supports up to 2 GB guest RAM.');
     }
 
-    this.diag('Reading ISO into browser memory');
+    this.onRuntime(false, 'Loading ISO into memory...');
+    this.diag('Stage: reading ISO into browser memory');
     const bytes = new Uint8Array(await isoFile.arrayBuffer());
     const isoPath = '/nexaos.iso';
     try { this.module.FS_unlink(isoPath); } catch {}
     this.module.FS_writeFile(isoPath, bytes);
     this.diag('ISO loaded: ' + bytes.byteLength + ' bytes');
+    this.onRuntime(false, 'ISO loaded — preparing QEMU boot...');
 
     if (firmware === 'uefi') {
       throw new Error('UEFI is not packaged yet; use BIOS for this build.');
@@ -111,7 +123,8 @@ export class VMController {
     // This also avoids calling callMain() directly, which bypasses the
     // initialization path expected by the generated Emscripten module.
     this.module.arguments = args;
-    this.diag('Starting QEMU with ' + memoryMiB + ' MB RAM and ' + smp + ' CPU thread(s)');
+    this.diag('Stage: launching QEMU — ' + memoryMiB + ' MB RAM and ' + smp + ' CPU thread(s)');
+    this.onRuntime(false, 'Starting QEMU machine...');
     if (typeof this.module.callMain === 'function') {
       this.module.callMain(args);
     } else {
@@ -145,7 +158,7 @@ export class VMController {
       await this.loadRuntime();
       this.diag('Runtime ready; starting VM');
       await this.runtime.start({isoFile, ...settings});
-      this.onStatus('running', 'QEMU-Wasm started');
+      this.onStatus('running', 'QEMU-Wasm started — booting ISO');
     } catch (e) {
       this.onError(e?.message || String(e));
       this.onStatus('error', e?.message || 'QEMU-Wasm failed');
