@@ -24,6 +24,7 @@ export class VMController {
     if (this.runtime) return this.runtime;
 
     const base = this.base.href;
+    const cached = 'caches' in window ? await caches.open('nexaos-qemu-runtime-v1').catch(()=>null) : null;
     this.onRuntime(false, 'Loading QEMU-Wasm runtime... 0%');
     this.diag('Stage 1/5 — preparing QEMU runtime (0%)');
     this.diag('Base URL: ' + base);
@@ -70,7 +71,7 @@ export class VMController {
     this.diag('Initializing Emscripten module');
     this.module = await Promise.race([
       factory(window.Module),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out initializing QEMU-Wasm after 60 seconds')), 60000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timed out initializing QEMU-Wasm after 10 minutes')), 600000))
     ]);
     this.onRuntime(false, 'QEMU engine initialized... 85%');
     this.diag('Stage 5/5 — Emscripten module initialized (85%)');
