@@ -1,0 +1,39 @@
+name: Upstream feasibility audit
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "docs/UPSTREAM-EVALUATION.md"
+      - ".github/workflows/upstream-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Inspect upstream without building Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check upstream repository and key files
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="https://github.com/somalapuram/aosp-pc-x86_64.git"
+          echo "Checking upstream refs (no full clone)..."
+          git ls-remote --exit-code "$REPO" HEAD
+          for file in README.md LICENSE build.sh qemu.sh; do
+            url="https://raw.githubusercontent.com/somalapuram/aosp-pc-x86_64/main/$file"
+            code="$(curl -L -sS -o "/tmp/$file" -w '%{http_code}' "$url")"
+            if [[ "$code" != "200" ]]; then
+              echo "::error::Could not fetch $file (HTTP $code)"
+              exit 1
+            fi
+            echo "OK: $file"
+          done
+          echo
+          echo "Runner disk space (diagnostic only):"
+          df -h .
+          echo
+          echo "SAFETY: this workflow does not clone AOSP, execute upstream scripts, build Android, or write any disk image."
